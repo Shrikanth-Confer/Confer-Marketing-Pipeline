@@ -292,12 +292,14 @@ async def test_sd3_no_image_data():
 # ===== Registry =====
 
 def test_registry_has_all_image_providers():
-    expected = {"dalle-3", "flux-1.1-pro", "ideogram-v2", "imagen-3", "sd3-ultra"}
+    expected = {"dalle-3", "gpt-image-1", "flux-2-pro", "flux-2-dev", "flux-2-schnell",
+                "imagen-3", "sd3.5-large", "ideogram-v3"}
     assert expected.issubset(set(PROVIDER_MAP.keys()))
 
 
 def test_registry_entries_are_valid():
-    for model_id, (cls, key_name) in PROVIDER_MAP.items():
+    for model_id, (cls, key_name, variant_config) in PROVIDER_MAP.items():
         assert issubclass(cls, object)
         assert isinstance(key_name, str)
         assert len(key_name) > 0
+        assert isinstance(variant_config, dict)

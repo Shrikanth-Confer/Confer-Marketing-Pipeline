@@ -25,3 +25,8 @@
 | 2026-02-15 | 6 | Frontend Core | ✅ Done | Next.js 16, shadcn/ui, types, API client, key store, model roster |
 | 2026-02-15 | 7 | Command Center UI | ✅ Done | Prompt input, refine controls, model selector, hooks |
 | 2026-02-15 | 8 | Gallery UI | ✅ Done | Image/video/error cards, download, empty state, Ctrl+Enter |
+| 2026-02-16 | 9 | Phase 9 Backend | ✅ Done | Family providers (OpenAI, BFL, Google, Stability, Ideogram), ReplicateUnified adapter, 3-tuple registry (28 entries), 47/47 tests |
+| 2026-02-16 | 9 | Phase 9 Frontend | ✅ Done | v0 dark oklch theme, Inter/JetBrains Mono, ConferHeader, SettingsDialog, CommandCenter, AssetGallery, 28-model roster, clean build |
+| 2026-02-16 | 10 | Phase 10 Backend | ✅ Done | 4 new providers (FalFamily, ModelsLabFamily, WaveSpeedFamily, SynthesiaProvider), ReplicateUnified video fix, config + env + registry (41 entries), orchestrator updated |
+| 2026-02-16 | 10 | Phase 10 Frontend | ✅ Done | badge field on ModelInfo, 13 new models in models.ts, 4 new API key fields in SettingsDialog, clean build |
+| 2026-02-16 | 10 | Phase 10 Tests | ✅ Done | 47/47 tests pass, registry count 41, video set expanded to 18 entries |

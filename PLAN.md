@@ -380,7 +380,158 @@ No Redux, no Zustand. React state + two custom hooks is sufficient:
 
 ---
 
-## 6. Tech Stack Summary
+## 6. Phase 9 — Family-Based Provider Architecture
+
+### 6.1 The Problem
+
+The original 1-file-per-model approach (Phase 3-4) doesn't scale to 25+ models. Many models share the same API shape (e.g., all Replicate models use the same create-prediction → poll pattern).
+
+### 6.2 Family Provider Pattern
+
+A single class handles multiple model variants via `variant_config`:
+
+```python
+class AbstractProvider(ABC):
+    def __init__(self, api_key: str, variant_config: dict | None = None) -> None:
+        self.api_key = api_key
+        self.variant_config = variant_config or {}
+        # Allow variant_config to override model_id
+        if "model_id" in self.variant_config:
+            self.model_id = self.variant_config["model_id"]
+```
+
+### 6.3 Three-Tuple Registry
+
+```python
+PROVIDER_MAP: dict[str, tuple[type[AbstractProvider], str, dict]] = {
+    # model_id → (ProviderClass, required_key, variant_config)
+    "dalle-3":         (OpenAIFamily,       "openai",    {"model": "dall-e-3"}),
+    "gpt-image-1":     (OpenAIFamily,       "openai",    {"model": "gpt-image-1"}),
+    "flux-2-pro":      (BFLFamily,          "bfl",       {"endpoint": "flux-2-pro"}),
+    "flux-2-dev":      (BFLFamily,          "bfl",       {"endpoint": "flux-2-dev"}),
+    "recraft-v3":      (ReplicateUnified,   "replicate", {"version": "recraft-ai/recraft-v3"}),
+    ...
+}
+```
+
+### 6.4 Provider Families
+
+| Family Class | Key | Models | API Pattern |
+|---|---|---|---|
+| `OpenAIFamily` | `openai` | DALL-E 3, GPT Image 1 | POST /v1/images/generations (sync) |
+| `BFLFamily` | `bfl` | Flux 2 Pro, Dev, Schnell | POST api.bfl.ai/v1/{endpoint} → poll (async) |
+| `GoogleFamily` | `google` | Imagen 3 | Generative AI API (sync) |
+| `StabilityFamily` | `stability` | SD3.5 Large | Stability REST, multipart (sync) |
+| `IdeogramFamily` | `ideogram` | Ideogram v3 | Ideogram REST (sync) |
+| `ReplicateUnified` | `replicate` | 12+ community models | Create prediction → poll (async) |
+
+### 6.5 Video Providers (unchanged)
+
+Existing video providers (Runway, Luma, Veo, Pika, Firefly, HeyGen) remain as-is since each has a unique API.
+
+### 6.6 Frontend — v0 Dark Theme
+
+The frontend is rebuilt from the `v0/` reference design:
+- Dark oklch color system (`--background: oklch(0.13 0.005 260)`)
+- Inter + JetBrains Mono fonts
+- Glassmorphism: `backdrop-blur-xl`, `/50` opacity borders
+- Unified CommandCenter component (auto-resize textarea, inline model toggles)
+- AssetGallery with loading/success/error states and hover overlays
+- ~25 models organized by Image Models / Video Models sections
+
+---
+
+## 8. Phase 10 — Free & High-Performance Expansion
+
+### 8.1 Problem Statement
+
+Phase 9 covered 28 models via 5 direct-API families + 1 Replicate adapter + 6 legacy video providers. However, the `Free API_NO_API.md` reference reveals four additional API platforms (**Fal.ai**, **ModelsLab**, **WaveSpeed**, **Synthesia**) plus new video models on Replicate (Kling, WAN, AnimateDiff) that aren't yet mapped.
+
+### 8.2 New API Platforms
+
+| Platform | Auth Pattern | Endpoint Pattern | Async Model |
+|---|---|---|---|
+| **Fal.ai** | `Authorization: Key {key}` | `POST https://queue.fal.run/{model_id}` | Queue → poll status → GET result |
+| **ModelsLab** | JSON body `"key": "{key}"` | `POST https://modelslab.com/api/v6/video/text2video` | POST → poll `fetch_result` URL |
+| **WaveSpeed** | `Authorization: Bearer {key}` | `POST https://api.wavespeed.ai/v1/models/{model}/run` | POST → poll result |
+| **Synthesia** | `Authorization: {key}` | `POST https://api.synthesia.io/v2/videos` | POST → GET `/v2/videos/{id}` |
+
+### 8.3 Fal.ai REST API (Queue Pattern)
+
+```
+1. Submit:  POST https://queue.fal.run/{model_id}
+   Headers: Authorization: Key {fal_key}
+   Body:    {"prompt": "...", "duration": 5, ...}
+   → 201 {"request_id": "...", "status_url": "...", "response_url": "..."}
+
+2. Poll:    GET https://queue.fal.run/{model_id}/requests/{request_id}/status
+   → 202 {"status": "IN_QUEUE" | "IN_PROGRESS"}
+   → 200 {"status": "COMPLETED", "response_url": "..."}
+
+3. Result:  GET https://queue.fal.run/{model_id}/requests/{request_id}
+   → 200 {"video": {"url": "..."}}
+```
+
+### 8.4 New Provider Map
+
+```python
+# ─── Fal.ai (queue-based) ──────────────────────────────────────────
+"kling-v2-fal":      (FalFamily,          "fal",       {"model_id": ..., "fal_model": "fal-ai/kling-video/v2.1/standard/text-to-video"})
+"wan-fal":           (FalFamily,          "fal",       {"model_id": ..., "fal_model": "fal-ai/wan/v2.1/text-to-video"})
+"ltx-video-fal":     (FalFamily,          "fal",       {"model_id": ..., "fal_model": "fal-ai/ltx-video"})
+"animatediff-fal":   (FalFamily,          "fal",       {"model_id": ..., "fal_model": "fal-ai/animatediff-sparsectrl-lcm"})
+
+# ─── ModelsLab (polling) ───────────────────────────────────────────
+"seedance-modelslab": (ModelsLabFamily,   "modelslab", {"model_id": ..., "modelslab_model": "seedance-2.0"})
+
+# ─── WaveSpeed (unified) ──────────────────────────────────────────
+"seedream-ws":       (WaveSpeedFamily,    "wavespeed", {"model_id": ..., "ws_model": "bytedance/seedream-4.5", "media_type": "image"})
+"kling-ws":          (WaveSpeedFamily,    "wavespeed", {"model_id": ..., "ws_model": "kuaishou/kling-video", "media_type": "video"})
+"wan-ws":            (WaveSpeedFamily,    "wavespeed", {"model_id": ..., "ws_model": "alibaba/wan-video", "media_type": "video"})
+
+# ─── Synthesia (avatar video) ─────────────────────────────────────
+"synthesia-avatar":  (SynthesiaProvider,  "synthesia", {"model_id": ...})
+
+# ─── Replicate (extend, video) ────────────────────────────────────
+"kling-replicate":   (ReplicateUnified,   "replicate", {"model_id": ..., "owner_model": "kuaishou/kling-video", "media_type": "video"})
+"wan-replicate":     (ReplicateUnified,   "replicate", {"model_id": ..., "owner_model": "alibaba/wan-video", "media_type": "video"})
+"svd-replicate":     (ReplicateUnified,   "replicate", {"model_id": ..., "owner_model": "stability-ai/stable-video-diffusion-img2vid-xt-1-1", "media_type": "video"})
+"animatediff-replicate": (ReplicateUnified, "replicate", {"model_id": ..., "owner_model": "hotshotco/hot-shot-xl", "media_type": "video"})
+```
+
+**Total: 13 new models → Registry grows from 28 to 41 entries**
+
+### 8.5 ReplicateUnified Fix
+
+The current `ReplicateUnified` has `media_type = "image"` hardcoded. Phase 10 must:
+1. Read `self.variant_config.get("media_type", "image")` in `__init__`
+2. Override `self.media_type` so `_ok()` / `_error()` emit the correct `type` field
+3. For video outputs, also pass `duration_sec` from params into input_data
+
+### 8.6 Orchestrator Fix
+
+The hardcoded `_VIDEO_MODEL_IDS` set must be extended with the 9 new video model IDs. Long-term, this should be derived from the registry, but for Phase 10 we simply expand the set.
+
+### 8.7 Config Additions
+
+```python
+# New keys in Settings
+fal_api_key: str = ""
+modelslab_api_key: str = ""
+wavespeed_api_key: str = ""
+synthesia_api_key: str = ""
+```
+
+### 8.8 Frontend Changes
+
+- `models.ts`: +13 entries with new `badge?` optional field for "Fast" / "Free Tier"
+- `types/index.ts`: Add optional `badge?: string` to `ModelInfo`
+- `settings-dialog.tsx`: +4 key fields (Fal.ai, ModelsLab, WaveSpeed, Synthesia)
+- `command-center.tsx`: No structural changes — new models appear automatically via `IMAGE_MODELS` / `VIDEO_MODELS` arrays
+
+---
+
+## 9. Tech Stack Summary
 
 | Layer | Technology | Version |
 |---|---|---|

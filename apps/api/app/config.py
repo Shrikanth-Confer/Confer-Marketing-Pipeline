@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
 
     openai_api_key: str = ""
+    bfl_api_key: str = ""
     replicate_api_key: str = ""
     ideogram_api_key: str = ""
     google_api_key: str = ""
@@ -46,6 +47,10 @@ class Settings(BaseSettings):
     pika_api_key: str = ""
     adobe_api_key: str = ""
     heygen_api_key: str = ""
+    fal_api_key: str = ""
+    modelslab_api_key: str = ""
+    wavespeed_api_key: str = ""
+    synthesia_api_key: str = ""
 
     model_config = {"env_prefix": "CONFER_", "env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

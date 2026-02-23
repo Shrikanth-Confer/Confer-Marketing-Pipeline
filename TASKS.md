@@ -100,6 +100,77 @@
 
 ---
 
+## Phase 9: Mega-Expansion (Family Providers + v0 UI)
+
+### Backend
+
+- [x] **9.1** Refactor AbstractProvider — accept `variant_config: dict` in `__init__`
+- [x] **9.2** Create OpenAIFamily provider — DALL-E 3 + GPT Image 1 via `/v1/images/generations`
+- [x] **9.3** Create BFLFamily provider — Flux 2 Pro/Dev/Schnell via `api.bfl.ai`
+- [x] **9.4** Create GoogleFamily provider — Imagen 3 via Google Generative AI API
+- [x] **9.5** Create StabilityFamily provider — SD3.5 Large via Stability API
+- [x] **9.6** Create IdeogramFamily provider — Ideogram v3 via direct API
+- [x] **9.7** Create ReplicateUnified adapter — generic Replicate create+poll for 12+ models
+- [x] **9.8** Rewrite registry — 3-tuple format, 28 entries (22 image + 6 video)
+- [x] **9.9** Update orchestrator — unpack 3-tuple, pass variant_config to providers
+- [x] **9.10** Update config.py — add `bfl_api_key` field
+
+### Frontend
+
+- [x] **9.11** Replace globals.css with v0 dark oklch theme
+- [x] **9.12** Update layout.tsx — Inter + JetBrains Mono fonts
+- [x] **9.13** Port ConferHeader from v0 — sticky header with backdrop-blur
+- [x] **9.14** Port SettingsDialog from v0 — font-mono inputs, expanded key fields
+- [x] **9.15** Port CommandCenter from v0 — auto-resize textarea, inline model toggles
+- [x] **9.16** Port AssetGallery from v0 — loading/success/error cards with hover overlay
+- [x] **9.17** Expand models.ts — 28 models with family groupings
+- [x] **9.18** Add Kbd component from v0
+- [x] **9.19** Update page.tsx — wire new components to existing hooks
+
+### Verify
+
+- [x] **9.20** Run pytest — 47/47 tests pass
+- [x] **9.21** Run pnpm build — frontend builds cleanly
+- [x] **9.22** Update STATUS.md and TASKS.md with completion
+
+---
+
+## Phase 10: Free & High-Performance Expansion
+
+### Backend — New Providers
+
+- [x] **10.1** Fix ReplicateUnified — override `media_type` from `variant_config` to support video models
+- [x] **10.2** Create FalFamily provider (`providers/video/fal_family.py`) — queue submit → poll status → GET result
+- [x] **10.3** Create ModelsLabFamily provider (`providers/video/modelslab_family.py`) — POST → poll `fetch_result`
+- [x] **10.4** Create WaveSpeedFamily provider (`providers/video/wavespeed_family.py`) — unified run endpoint
+- [x] **10.5** Create SynthesiaProvider (`providers/video/synthesia.py`) — POST create → GET poll
+- [x] **10.6** Update config.py — add `fal_api_key`, `modelslab_api_key`, `wavespeed_api_key`, `synthesia_api_key`
+- [x] **10.7** Update .env / .env.example — add 4 new key fields
+
+### Backend — Registry & Orchestrator
+
+- [x] **10.8** Add 4 Fal.ai models to registry — kling-v2-fal, wan-fal, ltx-video-fal, animatediff-fal
+- [x] **10.9** Add 1 ModelsLab model to registry — seedance-modelslab
+- [x] **10.10** Add 3 WaveSpeed models to registry — seedream-ws, kling-ws, wan-ws
+- [x] **10.11** Add 1 Synthesia model to registry — synthesia-avatar
+- [x] **10.12** Add 4 Replicate video models to registry — kling-replicate, wan-replicate, svd-replicate, animatediff-replicate
+- [x] **10.13** Update orchestrator `_VIDEO_MODEL_IDS` — add 12 new video model IDs
+
+### Frontend
+
+- [x] **10.14** Add `badge?: string` to `ModelInfo` type — "Fast", "Free Tier", etc.
+- [x] **10.15** Expand models.ts — +13 new models with badges
+- [x] **10.16** Update SettingsDialog — add 4 new key fields (Fal.ai, ModelsLab, WaveSpeed, Synthesia)
+
+### Verify
+
+- [x] **10.17** Update tests — new registry count (41), video provider set expanded to 18
+- [x] **10.18** Run pytest — 47/47 tests pass
+- [x] **10.19** Run pnpm build — frontend builds cleanly
+- [x] **10.20** Update PLAN.md, TASKS.md, STATUS.md with completion
+
+---
+
 ## Summary
 
 | Phase | Tasks | Focus |
@@ -112,4 +183,6 @@
 | 6 | 8 | Frontend scaffolding |
 | 7 | 7 | Command Center |
 | 8 | 8 | Gallery |
-| **Total** | **56** | |
+| 9 | 22 | Mega-expansion |
+| 10 | 20 | Free & high-perf expansion |
+| **Total** | **98** | |

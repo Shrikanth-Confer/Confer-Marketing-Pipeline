@@ -38,7 +38,7 @@ async def test_generate_single_model_success(client: AsyncClient):
     })
     mock_http = _mock_client(dalle_resp)
 
-    with patch("app.providers.image.dalle.DalleProvider._http_client", return_value=mock_http):
+    with patch("app.providers.image.openai_family.OpenAIFamily._http_client", return_value=mock_http):
         resp = await client.post(GENERATE_URL, json={
             "prompt": "sneaker ad",
             "model_ids": ["dalle-3"],
@@ -92,11 +92,11 @@ async def test_generate_mixed_success_and_failure(client: AsyncClient):
     })
     mock_http = _mock_client(dalle_resp)
 
-    with patch("app.providers.image.dalle.DalleProvider._http_client", return_value=mock_http):
+    with patch("app.providers.image.openai_family.OpenAIFamily._http_client", return_value=mock_http):
         resp = await client.post(GENERATE_URL, json={
             "prompt": "test",
-            "model_ids": ["dalle-3", "flux-1.1-pro"],
-            "api_keys": {"openai": "sk-test"},  # no replicate key
+            "model_ids": ["dalle-3", "flux-2-pro"],
+            "api_keys": {"openai": "sk-test"},  # no bfl key
         })
 
     assert resp.status_code == 200
@@ -104,7 +104,7 @@ async def test_generate_mixed_success_and_failure(client: AsyncClient):
     assert len(results) == 2
 
     dalle_result = next(r for r in results if r["model_id"] == "dalle-3")
-    flux_result = next(r for r in results if r["model_id"] == "flux-1.1-pro")
+    flux_result = next(r for r in results if r["model_id"] == "flux-2-pro")
     assert dalle_result["status"] == "completed"
     assert flux_result["status"] == "error"
     assert "Missing API key" in flux_result["error"]
@@ -123,11 +123,11 @@ async def test_generate_multiple_models_success(client: AsyncClient):
     mock_dalle = _mock_client(dalle_resp)
     mock_ideo = _mock_client(ideo_resp)
 
-    with patch("app.providers.image.dalle.DalleProvider._http_client", return_value=mock_dalle), \
-         patch("app.providers.image.ideogram.IdeogramProvider._http_client", return_value=mock_ideo):
+    with patch("app.providers.image.openai_family.OpenAIFamily._http_client", return_value=mock_dalle), \
+         patch("app.providers.image.ideogram_family.IdeogramFamily._http_client", return_value=mock_ideo):
         resp = await client.post(GENERATE_URL, json={
             "prompt": "test",
-            "model_ids": ["dalle-3", "ideogram-v2"],
+            "model_ids": ["dalle-3", "ideogram-v3"],
             "api_keys": {"openai": "sk-test", "ideogram": "ideo-test"},
         })
 

@@ -10,12 +10,25 @@ from app.schemas.generate import GenerateRequest, GenerationResult
 logger = logging.getLogger(__name__)
 
 
+_VIDEO_MODEL_IDS = {
+    "runway-gen4", "luma-dream-machine", "google-veo",
+    "pika-v2", "firefly-video", "heygen-avatar",
+    # Replicate video
+    "kling-replicate", "wan-replicate", "svd-replicate", "animatediff-replicate",
+    # Fal.ai video
+    "kling-v2-fal", "wan-fal", "ltx-video-fal", "animatediff-fal",
+    # ModelsLab video
+    "seedance-modelslab",
+    # WaveSpeed video
+    "kling-ws", "wan-ws",
+    # Synthesia
+    "synthesia-avatar",
+}
+
+
 def _make_error(model_id: str, detail: str) -> GenerationResult:
     """Build an error result without needing a provider instance."""
-    media_type = "video" if model_id in {
-        "runway-gen4", "luma-dream-machine", "google-veo",
-        "pika-v2", "firefly-video", "heygen-avatar",
-    } else "image"
+    media_type = "video" if model_id in _VIDEO_MODEL_IDS else "image"
     return GenerationResult(
         model_id=model_id,
         type=media_type,
@@ -41,7 +54,7 @@ async def run_generation(req: GenerateRequest) -> list[GenerationResult]:
             )
             continue
 
-        provider_cls, key_name = entry
+        provider_cls, key_name, variant_config = entry
 
         # Missing API key
         api_key = req.api_keys.get(key_name)
@@ -52,7 +65,7 @@ async def run_generation(req: GenerateRequest) -> list[GenerationResult]:
             continue
 
         # Instantiate and schedule
-        provider = provider_cls(api_key=api_key)
+        provider = provider_cls(api_key=api_key, variant_config=variant_config)
         task = asyncio.create_task(
             provider.generate(req.prompt, req.negative_prompt, params),
             name=f"gen:{model_id}",

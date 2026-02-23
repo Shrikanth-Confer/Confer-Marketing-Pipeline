@@ -312,10 +312,22 @@ async def test_heygen_auth_error():
 # ===== Registry completeness =====
 
 def test_registry_has_all_video_providers():
-    expected_video = {"runway-gen4", "luma-dream-machine", "google-veo", "pika-v2", "firefly-video", "heygen-avatar"}
+    expected_video = {
+        "runway-gen4", "luma-dream-machine", "google-veo", "pika-v2", "firefly-video", "heygen-avatar",
+        # Phase 10: Replicate video
+        "kling-replicate", "wan-replicate", "svd-replicate", "animatediff-replicate",
+        # Phase 10: Fal.ai video
+        "kling-v2-fal", "wan-fal", "ltx-video-fal", "animatediff-fal",
+        # Phase 10: ModelsLab video
+        "seedance-modelslab",
+        # Phase 10: WaveSpeed video
+        "kling-ws", "wan-ws",
+        # Phase 10: Synthesia
+        "synthesia-avatar",
+    }
     actual = set(PROVIDER_MAP.keys())
     assert expected_video.issubset(actual)
 
 
 def test_registry_total_count():
-    assert len(PROVIDER_MAP) == 11  # 5 image + 6 video
+    assert len(PROVIDER_MAP) == 41  # 23 image + 18 video
