@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv sync:*)",
+      "Bash(curl:*)",
+      "Bash(uv run python -m pytest:*)",
+      "Bash(timeout:*)",
+      "Bash(uv run python:*)",
+      "Bash(npx create-next-app@latest:*)",
+      "Bash(1:*)",
+      "Bash(pnpm dlx shadcn@latest init:*)",
+      "Bash(pnpm dlx:*)",
+      "Bash(pnpm build:*)"
+    ]
+  }
+}
