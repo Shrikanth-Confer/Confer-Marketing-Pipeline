@@ -1,4 +1,4 @@
-"""Tests for the /generate endpoint and orchestrator logic."""
+"""Tests for the /generate endpoint with free-tier providers."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,11 +9,12 @@ from httpx import AsyncClient
 GENERATE_URL = "/api/v1/generate"
 
 
-def _mock_response(status_code: int, body: dict) -> MagicMock:
+def _mock_response(status_code: int, body: dict | None = None, content: bytes = b"") -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
-    resp.text = json.dumps(body)
-    resp.json.return_value = body
+    resp.text = json.dumps(body) if body else ""
+    resp.json.return_value = body or {}
+    resp.content = content
     return resp
 
 
@@ -21,6 +22,7 @@ def _mock_client(resp: MagicMock) -> AsyncMock:
     client = AsyncMock()
     client.post.return_value = resp
     client.get.return_value = resp
+    client.head.return_value = resp
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
     return client
@@ -31,25 +33,23 @@ def _mock_client(resp: MagicMock) -> AsyncMock:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_generate_single_model_success(client: AsyncClient):
-    """One image model, mocked provider → completed result."""
-    dalle_resp = _mock_response(200, {
-        "data": [{"url": "https://oai.example.com/img.png", "revised_prompt": "..."}],
-    })
-    mock_http = _mock_client(dalle_resp)
+async def test_generate_pollinations_no_key_needed(client: AsyncClient):
+    """Pollinations requires zero auth — should work with empty api_keys."""
+    head_resp = _mock_response(200)
+    mock_http = _mock_client(head_resp)
 
-    with patch("app.providers.image.openai_family.OpenAIFamily._http_client", return_value=mock_http):
+    with patch("app.providers.unified.UnifiedProvider._http_client", return_value=mock_http):
         resp = await client.post(GENERATE_URL, json={
             "prompt": "sneaker ad",
-            "model_ids": ["dalle-3"],
-            "api_keys": {"openai": "sk-test"},
+            "model_ids": ["pollinations"],
         })
 
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["results"]) == 1
     assert data["results"][0]["status"] == "completed"
-    assert data["results"][0]["model_id"] == "dalle-3"
+    assert data["results"][0]["model_id"] == "pollinations"
+    assert "pollinations.ai" in data["results"][0]["url"]
 
 
 @pytest.mark.anyio
@@ -58,7 +58,6 @@ async def test_generate_unknown_model(client: AsyncClient):
     resp = await client.post(GENERATE_URL, json={
         "prompt": "test",
         "model_ids": ["nonexistent-model"],
-        "api_keys": {},
     })
 
     assert resp.status_code == 200
@@ -69,13 +68,13 @@ async def test_generate_unknown_model(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_generate_missing_key(client: AsyncClient):
-    """Model requires a key that's not in api_keys → error for that model only."""
-    resp = await client.post(GENERATE_URL, json={
-        "prompt": "test",
-        "model_ids": ["dalle-3"],
-        "api_keys": {},  # missing 'openai'
-    })
+async def test_generate_missing_server_key(client: AsyncClient):
+    """Model requires a key that's not in .env → error for that model only."""
+    with patch("app.config.resolve_api_key", return_value=""):
+        resp = await client.post(GENERATE_URL, json={
+            "prompt": "test",
+            "model_ids": ["together-flux"],
+        })
 
     assert resp.status_code == 200
     results = resp.json()["results"]
@@ -86,55 +85,64 @@ async def test_generate_missing_key(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_generate_mixed_success_and_failure(client: AsyncClient):
-    """Two models: one succeeds, one has missing key → partial results."""
-    dalle_resp = _mock_response(200, {
-        "data": [{"url": "https://oai.example.com/img.png"}],
-    })
-    mock_http = _mock_client(dalle_resp)
+    """Two models: Pollinations succeeds (no key), Together fails (no key)."""
+    head_resp = _mock_response(200)
+    mock_http = _mock_client(head_resp)
 
-    with patch("app.providers.image.openai_family.OpenAIFamily._http_client", return_value=mock_http):
+    with patch("app.providers.unified.UnifiedProvider._http_client", return_value=mock_http), \
+         patch("app.config.resolve_api_key", return_value=""):
         resp = await client.post(GENERATE_URL, json={
             "prompt": "test",
-            "model_ids": ["dalle-3", "flux-2-pro"],
-            "api_keys": {"openai": "sk-test"},  # no bfl key
+            "model_ids": ["pollinations", "together-flux"],
         })
 
     assert resp.status_code == 200
     results = resp.json()["results"]
     assert len(results) == 2
 
-    dalle_result = next(r for r in results if r["model_id"] == "dalle-3")
-    flux_result = next(r for r in results if r["model_id"] == "flux-2-pro")
-    assert dalle_result["status"] == "completed"
-    assert flux_result["status"] == "error"
-    assert "Missing API key" in flux_result["error"]
+    poll_result = next(r for r in results if r["model_id"] == "pollinations")
+    together_result = next(r for r in results if r["model_id"] == "together-flux")
+    assert poll_result["status"] == "completed"
+    assert together_result["status"] == "error"
+    assert "Missing API key" in together_result["error"]
 
 
 @pytest.mark.anyio
-async def test_generate_multiple_models_success(client: AsyncClient):
-    """Two image models both succeed in parallel."""
-    dalle_resp = _mock_response(200, {
-        "data": [{"url": "https://oai.example.com/img.png"}],
+async def test_generate_together_success(client: AsyncClient):
+    """Together AI succeeds when key is set in env."""
+    together_resp = _mock_response(200, {
+        "data": [{"url": "https://api.together.xyz/v1/output.png"}],
     })
-    ideo_resp = _mock_response(200, {
-        "data": [{"url": "https://ideo.example.com/img.png", "resolution": {"width": 1024, "height": 1024}, "is_image_safe": True}],
-    })
+    mock_http = _mock_client(together_resp)
 
-    mock_dalle = _mock_client(dalle_resp)
-    mock_ideo = _mock_client(ideo_resp)
-
-    with patch("app.providers.image.openai_family.OpenAIFamily._http_client", return_value=mock_dalle), \
-         patch("app.providers.image.ideogram_family.IdeogramFamily._http_client", return_value=mock_ideo):
+    with patch("app.providers.unified.UnifiedProvider._http_client", return_value=mock_http), \
+         patch("app.config.resolve_api_key", return_value="test-key"):
         resp = await client.post(GENERATE_URL, json={
-            "prompt": "test",
-            "model_ids": ["dalle-3", "ideogram-v3"],
-            "api_keys": {"openai": "sk-test", "ideogram": "ideo-test"},
+            "prompt": "neon sneaker",
+            "model_ids": ["together-flux"],
         })
 
     assert resp.status_code == 200
     results = resp.json()["results"]
-    assert len(results) == 2
-    assert all(r["status"] == "completed" for r in results)
+    assert len(results) == 1
+    assert results[0]["status"] == "completed"
+
+
+@pytest.mark.anyio
+async def test_generate_no_api_keys_field_needed(client: AsyncClient):
+    """api_keys field is now optional — request works without it."""
+    head_resp = _mock_response(200)
+    mock_http = _mock_client(head_resp)
+
+    with patch("app.providers.unified.UnifiedProvider._http_client", return_value=mock_http):
+        resp = await client.post(GENERATE_URL, json={
+            "prompt": "test",
+            "model_ids": ["pollinations"],
+            # no api_keys field at all
+        })
+
+    assert resp.status_code == 200
+    assert resp.json()["results"][0]["status"] == "completed"
 
 
 @pytest.mark.anyio
@@ -142,8 +150,7 @@ async def test_generate_validation_empty_prompt(client: AsyncClient):
     """Empty prompt → 422."""
     resp = await client.post(GENERATE_URL, json={
         "prompt": "",
-        "model_ids": ["dalle-3"],
-        "api_keys": {"openai": "sk-test"},
+        "model_ids": ["pollinations"],
     })
     assert resp.status_code == 422
 
@@ -154,6 +161,5 @@ async def test_generate_validation_no_models(client: AsyncClient):
     resp = await client.post(GENERATE_URL, json={
         "prompt": "test",
         "model_ids": [],
-        "api_keys": {"openai": "sk-test"},
     })
     assert resp.status_code == 422

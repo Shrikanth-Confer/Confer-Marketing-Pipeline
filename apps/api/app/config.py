@@ -35,24 +35,45 @@ class Settings(BaseSettings):
             return "https://litellm.confersolutions.ai/v1"
         return v
 
-
-    openai_api_key: str = ""
-    bfl_api_key: str = ""
-    replicate_api_key: str = ""
-    ideogram_api_key: str = ""
-    google_api_key: str = ""
-    stability_api_key: str = ""
-    runway_api_key: str = ""
-    luma_api_key: str = ""
-    pika_api_key: str = ""
-    adobe_api_key: str = ""
-    heygen_api_key: str = ""
-    fal_api_key: str = ""
-    modelslab_api_key: str = ""
-    wavespeed_api_key: str = ""
-    synthesia_api_key: str = ""
+    # ─── Free-tier provider keys (set in .env) ────────────────────────
+    # Pollinations needs NO key — it's completely free and keyless.
+    together_api_key: str = ""       # Together AI (FLUX)
+    google_api_key: str = ""         # Google Gemini / Imagen
+    cloudflare_account_id: str = ""  # Cloudflare Workers AI
+    cloudflare_api_token: str = ""   # Cloudflare Workers AI
+    xai_api_key: str = ""            # xAI / Grok Imagine
+    huggingface_api_key: str = ""    # Hugging Face Inference
+    deepai_api_key: str = ""         # DeepAI
+    replicate_api_key: str = ""      # Replicate
+    fal_api_key: str = ""            # Fal.ai
+    elevenlabs_api_key: str = ""     # ElevenLabs TTS
 
     model_config = {"env_prefix": "CONFER_", "env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+
+# ─── Key resolution helper ────────────────────────────────────────────────
+# Maps registry key_name → settings attribute name
+_KEY_MAP: dict[str, str] = {
+    "together":    "together_api_key",
+    "google":      "google_api_key",
+    "cloudflare":  "cloudflare_api_token",
+    "xai":         "xai_api_key",
+    "huggingface": "huggingface_api_key",
+    "deepai":      "deepai_api_key",
+    "replicate":   "replicate_api_key",
+    "fal":         "fal_api_key",
+    "elevenlabs":  "elevenlabs_api_key",
+}
+
+
+def resolve_api_key(key_name: str) -> str:
+    """Resolve a registry key_name to the actual API key from settings."""
+    if not key_name:
+        return ""  # Pollinations — no key needed
+    attr = _KEY_MAP.get(key_name, "")
+    if not attr:
+        return ""
+    return getattr(settings, attr, "")
 
 
 settings = Settings()

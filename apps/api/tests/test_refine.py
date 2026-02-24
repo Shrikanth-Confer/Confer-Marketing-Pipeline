@@ -14,7 +14,6 @@ VALID_REQUEST = {
     "platform": "instagram",
     "audience": "gen-z sneakerheads",
     "tone": "bold",
-    "api_keys": {"litellm": "sk-test-key"},
 }
 
 MOCK_LLM_JSON = {
@@ -79,14 +78,18 @@ async def test_refine_strips_markdown_fences(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_refine_missing_api_key(client: AsyncClient):
-    """Missing 'litellm' key (and no env fallback) should return 502."""
-    bad_req = {**VALID_REQUEST, "api_keys": {}}
-
+    """Missing litellm key in both request and env should return 502."""
     with patch("app.services.refiner.settings") as mock_settings:
         mock_settings.litellm_api_key = None
         mock_settings.litellm_model = "gpt-5-nano"
         mock_settings.litellm_base_url = None
-        resp = await client.post(REFINE_URL, json=bad_req)
+        resp = await client.post(REFINE_URL, json={
+            "prompt": "test",
+            "platform": "general",
+            "audience": "test",
+            "tone": "bold",
+            "api_keys": {},
+        })
 
     assert resp.status_code == 502
     data = resp.json()

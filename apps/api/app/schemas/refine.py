@@ -13,7 +13,8 @@ class RefineRequest(BaseModel):
         pattern="^(bold|professional|playful|luxury|minimal)$",
     )
     api_keys: dict[str, str] = Field(
-        ..., description="Must include 'litellm' key"
+        default_factory=dict,
+        description="Optional — server uses CONFER_LITELLM_API_KEY env var as fallback",
     )
 
 
