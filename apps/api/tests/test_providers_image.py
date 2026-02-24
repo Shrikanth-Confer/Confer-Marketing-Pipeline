@@ -1,15 +1,11 @@
-"""Unit tests for image providers with mocked HTTP responses."""
+"""Unit tests for the UnifiedProvider handlers with mocked HTTP responses."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.providers.image.dalle import DalleProvider
-from app.providers.image.flux import FluxProvider
-from app.providers.image.gemini import GeminiImageProvider
-from app.providers.image.ideogram import IdeogramProvider
-from app.providers.image.sd3 import SD3Provider
+from app.providers.unified import UnifiedProvider
 from app.providers.registry import PROVIDER_MAP
 
 # ---------------------------------------------------------------------------
@@ -18,181 +14,96 @@ from app.providers.registry import PROVIDER_MAP
 DEFAULT_PARAMS = {"aspect_ratio": "1:1"}
 
 
-def _mock_response(status_code: int, body: dict) -> MagicMock:
+def _mock_response(status_code: int, body: dict | None = None, content: bytes = b"") -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
-    resp.text = json.dumps(body)
-    resp.json.return_value = body
+    resp.text = json.dumps(body) if body else ""
+    resp.json.return_value = body or {}
+    resp.content = content
     return resp
 
 
 def _mock_client(response: MagicMock) -> AsyncMock:
-    """Return an AsyncMock that works as an async context manager and responds to .post()/.get()."""
+    """Return an AsyncMock that works as an async context manager."""
     client = AsyncMock()
     client.post.return_value = response
     client.get.return_value = response
+    client.head.return_value = response
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
     return client
 
 
-# ===== DALL-E 3 =====
+# ===== Pollinations (zero auth) =====
 
 @pytest.mark.anyio
-async def test_dalle_success():
-    body = {
-        "data": [{
-            "url": "https://oai.example.com/img.png",
-            "revised_prompt": "A stunning sneaker photo...",
-        }]
-    }
-    mock_resp = _mock_response(200, body)
-    mock_client = _mock_client(mock_resp)
+async def test_pollinations_success():
+    mock_resp = _mock_response(200)
+    mock_http = _mock_client(mock_resp)
 
-    provider = DalleProvider(api_key="sk-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(variant_config={
+        "model_id": "pollinations", "handler": "pollinations", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("sneaker ad", None, DEFAULT_PARAMS)
 
     assert result.status == "completed"
-    assert result.model_id == "dalle-3"
+    assert result.model_id == "pollinations"
     assert result.type == "image"
-    assert result.url == "https://oai.example.com/img.png"
-    assert result.metadata["revised_prompt"] == "A stunning sneaker photo..."
-    assert result.metadata["width"] == 1024
-    assert result.metadata["height"] == 1024
+    assert "pollinations.ai" in result.url
 
 
 @pytest.mark.anyio
-async def test_dalle_auth_error():
-    mock_resp = _mock_response(401, {"error": {"message": "Invalid key"}})
-    mock_client = _mock_client(mock_resp)
+async def test_pollinations_error():
+    mock_resp = _mock_response(500)
+    mock_http = _mock_client(mock_resp)
 
-    provider = DalleProvider(api_key="bad-key")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(variant_config={
+        "model_id": "pollinations", "handler": "pollinations", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("test", None, DEFAULT_PARAMS)
 
     assert result.status == "error"
-    assert "Authentication" in result.error
+    assert "500" in result.error
 
+
+# ===== Together AI =====
 
 @pytest.mark.anyio
-async def test_dalle_aspect_ratio_mapping():
-    body = {"data": [{"url": "https://oai.example.com/wide.png"}]}
+async def test_together_success():
+    body = {"data": [{"url": "https://api.together.xyz/output.png"}]}
     mock_resp = _mock_response(200, body)
-    mock_client = _mock_client(mock_resp)
+    mock_http = _mock_client(mock_resp)
 
-    provider = DalleProvider(api_key="sk-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
-        result = await provider.generate("wide shot", None, {"aspect_ratio": "16:9"})
-
-    assert result.status == "completed"
-    assert result.metadata["width"] == 1792
-    assert result.metadata["height"] == 1024
-
-
-# ===== Flux (Replicate) =====
-
-@pytest.mark.anyio
-async def test_flux_success_immediate():
-    """Replicate honors Prefer:wait and returns completed immediately."""
-    body = {
-        "id": "pred_abc",
-        "status": "succeeded",
-        "output": "https://replicate.delivery/result.png",
-    }
-    mock_resp = _mock_response(201, body)
-    mock_client = _mock_client(mock_resp)
-
-    provider = FluxProvider(api_key="r8-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(api_key="test-key", variant_config={
+        "model_id": "together-flux", "handler": "together",
+        "model": "black-forest-labs/FLUX.1-schnell-Free", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("neon sneaker", None, DEFAULT_PARAMS)
 
     assert result.status == "completed"
-    assert result.url == "https://replicate.delivery/result.png"
-    assert result.metadata["prediction_id"] == "pred_abc"
+    assert result.url == "https://api.together.xyz/output.png"
 
 
 @pytest.mark.anyio
-async def test_flux_success_with_polling():
-    """Replicate returns processing, then succeeds on poll."""
-    create_body = {
-        "id": "pred_xyz",
-        "status": "processing",
-        "urls": {"get": "https://api.replicate.com/v1/predictions/pred_xyz"},
-    }
-    poll_body = {
-        "id": "pred_xyz",
-        "status": "succeeded",
-        "output": ["https://replicate.delivery/polled.png"],
-    }
-    create_resp = _mock_response(201, create_body)
-    poll_resp = _mock_response(200, poll_body)
+async def test_together_auth_error():
+    mock_resp = _mock_response(401, {"error": "Invalid API key"})
+    mock_http = _mock_client(mock_resp)
 
-    mock_client = AsyncMock()
-    mock_client.post.return_value = create_resp
-    mock_client.get.return_value = poll_resp
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
-
-    provider = FluxProvider(api_key="r8-test")
-    with patch.object(provider, "_http_client", return_value=mock_client), \
-         patch("app.providers.image.flux.asyncio.sleep", new_callable=AsyncMock):
-        result = await provider.generate("neon sneaker", None, DEFAULT_PARAMS)
-
-    assert result.status == "completed"
-    assert result.url == "https://replicate.delivery/polled.png"
-
-
-@pytest.mark.anyio
-async def test_flux_auth_error():
-    mock_resp = _mock_response(401, {"detail": "Invalid token"})
-    mock_client = _mock_client(mock_resp)
-
-    provider = FluxProvider(api_key="bad")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(api_key="bad-key", variant_config={
+        "model_id": "together-flux", "handler": "together",
+        "model": "black-forest-labs/FLUX.1-schnell-Free", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("test", None, DEFAULT_PARAMS)
 
     assert result.status == "error"
     assert "Authentication" in result.error
 
 
-# ===== Ideogram =====
-
-@pytest.mark.anyio
-async def test_ideogram_success():
-    body = {
-        "data": [{
-            "url": "https://ideogram.ai/result.png",
-            "resolution": {"width": 1024, "height": 1024},
-            "is_image_safe": True,
-        }]
-    }
-    mock_resp = _mock_response(200, body)
-    mock_client = _mock_client(mock_resp)
-
-    provider = IdeogramProvider(api_key="ideo-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
-        result = await provider.generate("abstract art", None, DEFAULT_PARAMS)
-
-    assert result.status == "completed"
-    assert result.url == "https://ideogram.ai/result.png"
-    assert result.metadata["width"] == 1024
-
-
-@pytest.mark.anyio
-async def test_ideogram_auth_error():
-    mock_resp = _mock_response(403, {"message": "Forbidden"})
-    mock_client = _mock_client(mock_resp)
-
-    provider = IdeogramProvider(api_key="bad")
-    with patch.object(provider, "_http_client", return_value=mock_client):
-        result = await provider.generate("test", None, DEFAULT_PARAMS)
-
-    assert result.status == "error"
-    assert "Authentication" in result.error
-
-
-# ===== Gemini / Imagen 3 =====
+# ===== Gemini / Imagen =====
 
 @pytest.mark.anyio
 async def test_gemini_success():
@@ -203,24 +114,29 @@ async def test_gemini_success():
         }]
     }
     mock_resp = _mock_response(200, body)
-    mock_client = _mock_client(mock_resp)
+    mock_http = _mock_client(mock_resp)
 
-    provider = GeminiImageProvider(api_key="goog-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
-        result = await provider.generate("sunset landscape", None, DEFAULT_PARAMS)
+    provider = UnifiedProvider(api_key="goog-test", variant_config={
+        "model_id": "gemini-imagen", "handler": "gemini",
+        "model": "imagen-3.0-generate-002", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
+        result = await provider.generate("sunset", None, DEFAULT_PARAMS)
 
     assert result.status == "completed"
     assert result.url.startswith("data:image/png;base64,")
-    assert result.metadata["aspect_ratio"] == "1:1"
 
 
 @pytest.mark.anyio
 async def test_gemini_auth_error():
     mock_resp = _mock_response(403, {"error": {"message": "API key invalid"}})
-    mock_client = _mock_client(mock_resp)
+    mock_http = _mock_client(mock_resp)
 
-    provider = GeminiImageProvider(api_key="bad")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(api_key="bad", variant_config={
+        "model_id": "gemini-imagen", "handler": "gemini",
+        "model": "imagen-3.0-generate-002", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("test", None, DEFAULT_PARAMS)
 
     assert result.status == "error"
@@ -231,75 +147,127 @@ async def test_gemini_auth_error():
 async def test_gemini_empty_predictions():
     body = {"predictions": []}
     mock_resp = _mock_response(200, body)
-    mock_client = _mock_client(mock_resp)
+    mock_http = _mock_client(mock_resp)
 
-    provider = GeminiImageProvider(api_key="goog-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(api_key="goog-test", variant_config={
+        "model_id": "gemini-imagen", "handler": "gemini",
+        "model": "imagen-3.0-generate-002", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("test", None, DEFAULT_PARAMS)
 
     assert result.status == "error"
     assert "no predictions" in result.error.lower()
 
 
-# ===== Stable Diffusion 3 =====
+# ===== Grok / xAI =====
 
 @pytest.mark.anyio
-async def test_sd3_success():
-    body = {
-        "image": "iVBORw0KGgoAAAANSUhEUg==",
-        "seed": 42,
-        "finish_reason": "SUCCESS",
-    }
+async def test_grok_success():
+    body = {"data": [{"url": "https://x.ai/output.png"}]}
     mock_resp = _mock_response(200, body)
-    mock_client = _mock_client(mock_resp)
+    mock_http = _mock_client(mock_resp)
 
-    provider = SD3Provider(api_key="stab-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(api_key="xai-test", variant_config={
+        "model_id": "grok-image", "handler": "grok",
+        "model": "grok-2-image", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
+        result = await provider.generate("abstract art", None, DEFAULT_PARAMS)
+
+    assert result.status == "completed"
+    assert result.url == "https://x.ai/output.png"
+
+
+# ===== DeepAI =====
+
+@pytest.mark.anyio
+async def test_deepai_success():
+    body = {"output_url": "https://api.deepai.org/output.jpg"}
+    mock_resp = _mock_response(200, body)
+    mock_http = _mock_client(mock_resp)
+
+    provider = UnifiedProvider(api_key="deepai-test", variant_config={
+        "model_id": "deepai", "handler": "deepai", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("cyberpunk city", None, DEFAULT_PARAMS)
 
     assert result.status == "completed"
+    assert result.url == "https://api.deepai.org/output.jpg"
+
+
+# ===== Hugging Face =====
+
+@pytest.mark.anyio
+async def test_huggingface_success():
+    fake_image = b"\x89PNG\r\n\x1a\n\x00\x00"
+    mock_resp = _mock_response(200, content=fake_image)
+    mock_http = _mock_client(mock_resp)
+
+    provider = UnifiedProvider(api_key="hf-test", variant_config={
+        "model_id": "huggingface-sdxl", "handler": "huggingface",
+        "model": "stabilityai/stable-diffusion-xl-base-1.0", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
+        result = await provider.generate("landscape", None, DEFAULT_PARAMS)
+
+    assert result.status == "completed"
     assert result.url.startswith("data:image/png;base64,")
-    assert result.metadata["seed"] == 42
 
 
 @pytest.mark.anyio
-async def test_sd3_auth_error():
-    mock_resp = _mock_response(401, {"message": "Unauthorized"})
-    mock_client = _mock_client(mock_resp)
+async def test_huggingface_loading():
+    mock_resp = _mock_response(503, {"error": "Model loading"})
+    mock_http = _mock_client(mock_resp)
 
-    provider = SD3Provider(api_key="bad")
-    with patch.object(provider, "_http_client", return_value=mock_client):
+    provider = UnifiedProvider(api_key="hf-test", variant_config={
+        "model_id": "huggingface-sdxl", "handler": "huggingface",
+        "model": "stabilityai/stable-diffusion-xl-base-1.0", "media_type": "image",
+    })
+    with patch.object(provider, "_http_client", return_value=mock_http):
         result = await provider.generate("test", None, DEFAULT_PARAMS)
 
     assert result.status == "error"
-    assert "Authentication" in result.error
+    assert "loading" in result.error.lower()
 
+
+# ===== Unknown handler =====
 
 @pytest.mark.anyio
-async def test_sd3_no_image_data():
-    body = {"seed": 42, "finish_reason": "CONTENT_FILTERED"}
-    mock_resp = _mock_response(200, body)
-    mock_client = _mock_client(mock_resp)
-
-    provider = SD3Provider(api_key="stab-test")
-    with patch.object(provider, "_http_client", return_value=mock_client):
-        result = await provider.generate("test", None, DEFAULT_PARAMS)
-
+async def test_unknown_handler():
+    provider = UnifiedProvider(variant_config={
+        "model_id": "bad", "handler": "nonexistent", "media_type": "image",
+    })
+    result = await provider.generate("test", None, DEFAULT_PARAMS)
     assert result.status == "error"
-    assert "no image" in result.error.lower()
+    assert "Unknown handler" in result.error
 
 
 # ===== Registry =====
 
-def test_registry_has_all_image_providers():
-    expected = {"dalle-3", "gpt-image-1", "flux-2-pro", "flux-2-dev", "flux-2-schnell",
-                "imagen-3", "sd3.5-large", "ideogram-v3"}
-    assert expected.issubset(set(PROVIDER_MAP.keys()))
+def test_registry_has_all_free_providers():
+    expected = {
+        "pollinations", "together-flux", "gemini-imagen", "cloudflare-sd",
+        "grok-image", "huggingface-sdxl", "deepai", "replicate-flux",
+        "fal-video", "elevenlabs-tts",
+    }
+    assert expected == set(PROVIDER_MAP.keys())
+
+
+def test_registry_count():
+    assert len(PROVIDER_MAP) == 10
 
 
 def test_registry_entries_are_valid():
     for model_id, (cls, key_name, variant_config) in PROVIDER_MAP.items():
-        assert issubclass(cls, object)
-        assert isinstance(key_name, str)
-        assert len(key_name) > 0
+        assert issubclass(cls, UnifiedProvider)
+        assert isinstance(key_name, str)  # can be empty for Pollinations
         assert isinstance(variant_config, dict)
+        assert "handler" in variant_config, f"{model_id} missing handler in variant_config"
+        assert "model_id" in variant_config, f"{model_id} missing model_id in variant_config"
+
+
+def test_pollinations_needs_no_key():
+    _, key_name, _ = PROVIDER_MAP["pollinations"]
+    assert key_name == ""
